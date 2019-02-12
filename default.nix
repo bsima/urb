@@ -7,8 +7,13 @@ let
 in
 
 pkgs.stdenv.mkDerivation rec {
-  name    = "urb";
-  srcFile = ./urb;
-  builder = ./builder.sh;
-  python  = "${pyenv}/bin/python";
+  name         = "urb";
+  python       = "${pyenv}/bin/python";
+  buildInputs  = [ pyenv ];
+  unpackPhase  = "true";
+  installPhase = ''
+    mkdir -p $out/bin
+    cp ${./urb} $out/bin/urb
+    chmod +x $out/bin/urb
+  '';
 }
