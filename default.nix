@@ -11,9 +11,4 @@ pkgs.stdenv.mkDerivation rec {
   srcFile = ./urb;
   builder = ./builder.sh;
   python  = "${pyenv}/bin/python";
-
-  env = pkgs.buildEnv {
-    inherit name;
-    paths = [ pyenv ];
-  };
 }

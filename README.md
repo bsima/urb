@@ -7,7 +7,7 @@ Unix control of Urbit
 To run without installing anything:
 
 ```bash
-nix-shell --pure --command './urb -d "(add 3 4)"'
+nix-shell --command 'urb -d "(add 3 4)"'
 ```
 
 To install `urb`:
