@@ -8,5 +8,6 @@ in
 
 pkgs.stdenv.mkDerivation rec {
   name        = "urb-env";
-  env         = pkgs.buildEnv { name = "urb-env"; paths = [ urb ]; };
+  buildInputs = [ urb ];
+  env         = pkgs.buildEnv { inherit name; paths = buildInputs; };
 }
