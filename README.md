@@ -13,5 +13,5 @@ nix-shell --pure --command 'urb -d "(add 3 4)"'
 To install `urb`:
 
 ```bash
-nix-env -f . -i
+nix-env -if .
 ```
