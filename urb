@@ -388,11 +388,7 @@ else:
 
 url = "http://localhost:%s" % PORT
 
-r = requests.post(
-  url,
-  data=json.dumps(payload),
-  timeout=9001, # Over 9000 seconds.
-)
+r = requests.post(url, data=json.dumps(payload))
 
 if r.text[0] == '"':
     print r.text[1:-1].decode('string_escape')
