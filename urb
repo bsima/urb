@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # TODO:
 # - -h text
@@ -271,133 +271,495 @@ def is_dir(dirname):
     else:
         return dirname
 
-def get_args():
-    """Get CLI arguments and options"""
-    parser = argparse.ArgumentParser(description="""do something""")
+def run_pier(args):
+    if args.source is None:
+        args.source = {"data": ''.join(sys.stdin)}
 
-    parser.add_argument('alignments', help="The folder of alignments",
-        action=FullPaths, type=is_dir)
+    payload = {"source": args.source, "sink": args.sink}
+    logging.debug(['payload', json.dumps(payload)])
 
-parser = argparse.ArgumentParser(description='headless urbit')
-parser.add_argument('pier', nargs='?',
-                    help='target urbit directory',
-                    action=FullPaths, type=is_dir)
-parser.add_argument('-d', '--dojo', which='dojo',
-                    metavar='command-line',
-                    help='run dojo command',
-                    action=sourceAction, dest='source')
-parser.add_argument('-D', '--data', which='data',
-                    metavar='text',
-                    help='literal text data',
-                    action=sourceAction)
-parser.add_argument('-c', '--clay', which='clay',
-                    metavar='clay-path',
-                    help='load data from clay',
-                    action=sourceAction)
-parser.add_argument('-u', '--url', which='url',
-                    metavar='url',
-                    help='pull data from url',
-                    action=sourceAction)
-parser.add_argument('-a', '--api', which='api',
-                    metavar='command',
-                    help='get data from api',
-                    action=sourceAction)
-parser.add_argument('-g', '--get-api', which='get-api',
-                    metavar='api:endpoint',
-                    help='get data from api endpoint',
-                    action=sourceAction)
-parser.add_argument('-l', '--listen-api', which='listen-api',
-                    metavar='api:event',
-                    help='listen to event from api',
-                    action=sourceAction)
-parser.add_argument('-m', '--mark', which='as',
-                    metavar='mark',
-                    help='transform a source to another mark',
-                    nesting='mark',
-                    action=transformerAction)
-parser.add_argument('-H', '--hoon', which='hoon',
-                    metavar='code',
-                    help='transform a source by hoon code',
-                    nesting='code',
-                    action=transformerAction)
-parser.add_argument('--open',
-                    nargs=0,
-                    help='start tuple',
-                    action=openAction, dest='level')
-parser.add_argument('--close',
-                    nargs=0,
-                    help='stop tuple',
-                    action=closeAction)
+    PORT = ""
 
-sinks = parser.add_mutually_exclusive_group()
-sinks.add_argument('-s', '--stdout', const={'stdout': None},
-                   default={'stdout': None},
-                   action='store_const', dest='sink')
-sinks.add_argument('-f', '--output-file', which='output-file',
-                   metavar='path',
-                   action=sinkAction)
-sinks.add_argument('-P', '--output-pill', which='output-pill',
-                   metavar='path',
-                   action=sinkAction)
-sinks.add_argument('-C', '--output-clay', which='output-clay',
-                   metavar='clay-path',
-                   action=sinkAction)
-sinks.add_argument('-U', '--output-url', which='url',
-                   metavar='url',
-                   action=sinkAction)
-sinks.add_argument('-t', '--to-api', which='to-api',
-                   metavar='api-command',
-                   action=sinkAction)
-sinks.add_argument('-n', '--send-api', which='send-api',
-                   metavar='api:endpoint',
-                   action=sinkAction)
-sinks.add_argument('-x', '--command', which='command',
-                   metavar='command',
-                   action=sinkAction)
-sinks.add_argument('-p', '--app', which='app',
-                   metavar='app',
-                   action=sinkAction)
+    if args.pier is None:
+        PORT = os.environ.get('LENS_PORT', 12321)
+        if not os.environ.has_key('LENS_PORT'):
+            logging.warn("No pier or port specified, looking on port " + str(PORT))
+    else:
+        with open(os.path.join(args.pier, ".http.ports")) as ports:
+            for line in ports:
+                if -1 != line.find("loopback"):
+                    PORT = line.split()[0]
+                    logging.info("Found port %s" % PORT)
+                    break
+
+            if not PORT:
+                logging.error("Error reading port from .http.ports file")
+                sys.exit(1)
+
+    url = "http://localhost:%s" % PORT
+
+    r = requests.post(url, data=json.dumps(payload))
+
+    if r.text[0] == '"':
+        print r.text[1:-1].decode('string_escape')
+    elif r.text[0] == '{':
+        # print r.text
+        json_data = json.loads(r.text)
+        logging.debug(json_data)
+        with open(json_data['file'][:0:-1].replace('/','.',1)[::-1], 'w') as f:
+          f.write(base64.b64decode(json_data['data']))
+    else:
+        logging.warn("unrecognized response")
+        print r.text
+
+lookup_name = {
+  'ace': ' ',
+  'ban': '>',
+  'bar': '|',
+  'bat': '\\',
+  'bus': '$',
+  'cab': '_',
+  'cen': '%',
+  'col': ':',
+  'com': ',',
+  'dot': '.',
+  'gap': '\n',
+  'gap': '  ',
+  'gap': '\t',
+  'hax': '#',
+  'hep': '-',
+  'ket': '^',
+  'lac': '[',
+  'led': '<',
+  'lit': '(',
+  'lob': '{',
+  'lus': '+',
+  'mic': ';',
+  'net': '/',
+  'pad': '&',
+  'pat': '@',
+  'rac': ']',
+  'rit': ')',
+  'rob': '}',
+  'say': '\'',
+  'sig': '~',
+  'tar': '*',
+  'tec': '\`',
+  'tis': '=',
+  'wut': '?',
+  'yel': '"',
+  'zap': '!',
+}
+
+# reverse the above key/vals
+lookup_sym = {v: k for k, v in lookup_name.items()}
+
+def translate_glyph(args):
+    print(' '.join([lookup_sym[s] for s in args.syms]))
+
+rune_cheatsheet = {
+    '|%': {'args': '<arms>',
+           'desc': 'form a core with subject as the payload',
+           'ireg': None},
+    '|~': {'args': '[model value]',
+           'desc': 'form an iron gate',
+           'ireg': None},
+    '|=': {'args': '[model value]',
+           'desc': 'form a gate, a dry one-armed core with sample',
+           'ireg': None},
+    '|.': {'args': 'hoon',
+           'desc': 'form a trap, a one-armed core with one arm $',
+           'ireg': None},
+    '|-': {'args': 'hoon',
+           'desc': 'form a trap and kick ("call") it',
+           'ireg': None},
+    '|_': {'args': 'model (map term foot)',
+           'desc': 'form a door, a many-armed core with sample',
+           'ireg': None},
+    '|*': {'args': '[model value]',
+           'desc': 'form a gill, a we one-armed core with sample',
+           'ireg': None},
+    '|^': {'args': 'hoon (map term foot)',
+           'desc': 'form a core with battery and anonymous arm $ and kick it',
+           'ireg': None},
+    '|:': {'args': '[hoon hoon]',
+           'desc': 'form a core with burnt sample',
+           'ireg': None},
+    '|?': {'args': 'hoon',
+           'desc': 'form a a lead trap',
+           'ireg': None},
+
+    '$:': {'args': '(list model)',
+           'desc': 'form a mold to recognize a tuple',
+           'ireg': '[a=foo b=bar c=baz]'},
+    '$=': {'args': '[@tas model]',
+           'desc': 'mold that wraps a face around another mold',
+           'ireg': 'foo=bar'},
+    '$%': {'args': '(list [[aura @] model])',
+           'desc': 'mold recognizing a union tagged by depth',
+           'ireg': None},
+    '$@': {'args': '[model model]',
+           'desc': 'mold that normalizes a union tagged by depth',
+           'ireg': None},
+    '$^': {'args': '[model model]',
+           'desc': 'mold that normalizes a union tagged by head depth',
+           'ireg': None},
+    '$?': {'args': '(list model)',
+           'desc': 'mold that normalizes a generic union',
+           'ireg': '?($foo $bar $baz)'},
+    '$-': {'args': '[model model]',
+           'desc': 'mold that normalizes to an example gate',
+           'ireg': None},
+    '$_': {'args': 'value',
+           'desc': 'mold that normalizes to an example',
+           'ireg': '_foo'},
+
+    '%=': {'args': '[wing (list (pair wing hoon))',
+           'desc': 'take a wing with changes',
+           'ireg': 'foo(x 1, y 2, z 3)'},
+    '%_': {'args': '[wing (list (pair wing hoon))',
+           'desc': 'take a wing with changes, preserving type',
+           'ireg': None},
+    '%~': {'args': '[wing hoon hoon)',
+           'desc': 'call with multi-armed door',
+           'ireg': '~(arm core arg)'},
+    '%-': {'args': '[hoon hoon)',
+           'desc': 'call a gate (function)',
+           'ireg': '(fun arg)'},
+    '%.': {'args': '[hoon hoon)',
+           'desc': 'call a gate, reversed',
+           'ireg': None},
+    '%+': {'args': '[hoon hoon hoon)',
+           'desc': 'call a gate with pair sample',
+           'ireg': None},
+    '%^': {'args': '[hoon hoon hoon hoon)',
+           'desc': 'call a gate with triple sample',
+           'ireg': None},
+    '%*': {'args': '[wing hoon (list (pair wing hoon))',
+           'desc': 'make with arbitrary hoon',
+           'ireg': None},
+
+    ':-': {'args': '[hoon hoon]',
+           'desc': 'construct a cell (2-tuple)',
+           'ireg': '[a b], a^b'},
+    ':+': {'args': '[hoon hoon hoon]',
+           'desc': 'construct a triple (3-tuple)',
+           'ireg': '[a b c]'},
+    ':^': {'args': '[hoon hoon hoon hoon]',
+           'desc': 'construct a quad (4-tuple)',
+           'ireg': '[a b c d]'},
+    ':*': {'args': '(list hoon)',
+           'desc': 'construct an n-tuple',
+           'ireg': '[a b c d ...]'},
+    ':~': {'args': '(list hoon)',
+           'desc': 'construct a null-terminated list',
+           'ireg': '~[a b c]'},
+    ':_': {'args': '[hoon hoon]',
+           'desc': 'construct a cell, inverted',
+           'ireg': None},
+
+    '.*': {'args': '[hoon hoon]',
+           'desc': 'evaluate with nock 2',
+           'ireg': None},
+    '.?': {'args': 'hoon',
+           'desc': 'check for cell or atom with nock 3',
+           'ireg': None},
+    '.+': {'args': 'atom',
+           'desc': 'increment an atom with nock 4',
+           'ireg': '+(42)'},
+    '.=': {'args': '[hoon hoon]',
+           'desc': 'test for equality with nock 5',
+           'ireg': '=(a b)'},
+    '.^': {'args': '[model value]',
+           'desc': 'load from the arvo namespace with nock 11',
+           'ireg': None},
+
+    '^+': {'args': '[value value]',
+           'desc': 'typecast by example (value)',
+           'ireg': None},
+    '^-': {'args': '[model value]',
+           'desc': 'typecast by mold',
+           'ireg': '`foo`bar'},
+    '^=': {'args': '[toga value]',
+           'desc': 'name a value',
+           'ireg': 'foo=bar'},
+    '^?': {'args': 'hoon',
+           'desc': 'convert any core to a lead core (bivariant)',
+           'ireg': None},
+    '^|': {'args': 'hoon',
+           'desc': 'convert a gold core to an iron core (contravariant)',
+           'ireg': None},
+    '^~': {'args': 'hoon',
+           'desc': 'fold a constant at compile time',
+           'ireg': None},
+
+    ';;': {'args': '[model value]',
+           'desc': 'normalize with a mold, asserting fixpoint',
+           'ireg': None},
+    ';~': {'args': '[hoon (list hoon)]',
+           'desc': 'glue a pipeline together with a product-sample adapter',
+           'ireg': None},
+    ';:': {'args': '[hoon (list hoon)]',
+           'desc': 'call a binary function as an n-ary function',
+           'ireg': ':(fun a b c d)'},
+    ';/': {'args': 'hoon',
+           'desc': 'tape as XML element',
+           'ireg': None},
+
+    '~&': {'args': '[hoon]',
+           'desc': 'debugging printf',
+           'ireg': None},
+    '~%': {'args': '[term wing (list [term hoon]) hoon]',
+           'desc': 'jet registration',
+           'ireg': None},
+    '~/': {'args': '[term hoon]',
+           'desc': 'jet registration for gate with registered context',
+           'ireg': None},
+    '~$': {'args': '[term hoon]',
+           'desc': 'profiling hit counter',
+           'ireg': None},
+    '~|': {'args': '[hoon hoon]',
+           'desc': 'tracing printf',
+           'ireg': None},
+    '~_': {'args': '[hoon hoon]',
+           'desc': 'user-formatted tracing printf',
+           'ireg': None},
+    '~?': {'args': '[hoon hoon hoon]',
+           'desc': 'conditional debug printf',
+           'ireg': None},
+    '~>': {'args': '$@(term [term hoon]) hoon]',
+           'desc': 'raw hint, applied to computation',
+           'ireg': None},
+    '~<': {'args': '$@(term [term hoon]) hoon]',
+           'desc': 'raw hint, applied to product',
+           'ireg': None},
+    '~+': {'args': 'hoon',
+           'desc': 'cache a computation',
+           'ireg': None},
+    '~=': {'args': '[hoon hoon]',
+           'desc': 'detect duplicate',
+           'ireg': None},
+    '~!': {'args': '[hoon hoon]',
+           'desc': 'print type on compilation fail',
+           'ireg': None},
+
+    '=>': {'args': '[hoon hoon]',
+           'desc': 'compose two hoons',
+           'ireg': None},
+    '=^': {'args': '[taco wing hoon hoon]',
+           'desc': 'pin the head of a pair; change a leg with the tail',
+           'ireg': None},
+    '=*': {'args': '[term hoon hoon]',
+           'desc': 'define an alias',
+           'ireg': None},
+    '=~': {'args': '(list hoon)',
+           'desc': 'compose many hoons',
+           'ireg': None},
+    '=<': {'args': '[hoon hoon]',
+           'desc': 'combine two hoons, inverted',
+           'ireg': 'foo:bar'},
+    '=+': {'args': '[hoon hoon]',
+           'desc': 'combine a new noun with the subject',
+           'ireg': None},
+    '=-': {'args': '[hoon hoon]',
+           'desc': 'combine a new noun with the subject, inverted',
+           'ireg': None},
+    '=|': {'args': '[model value]',
+           'desc': 'combine a defaulted mold with the subject',
+           'ireg': None},
+    '=/': {'args': '[taco value hoon]',
+           'desc': 'combine a named and/or typed noun with the subject',
+           'ireg': None},
+    '=;': {'args': '[taco value hoon]',
+           'desc': 'combine a named and/or typed noun with the subject, inverted',
+           'ireg': None},
+    '=.': {'args': '[wing hoon hoon]',
+           'desc': 'change one leg in the subject',
+           'ireg': None},
+    '=:': {'args': '[(list (pair win hoon)) hoon]',
+           'desc': 'change multiple legs in the subject',
+           'ireg': None},
+
+    '?:': {'args': '[hoon hoon hoon]',
+           'desc': 'branch on a boolean test',
+           'ireg': None},
+    '?<': {'args': '[hoon hoon]',
+           'desc': 'negative assertion',
+           'ireg': None},
+    '?>': {'args': '[hoon hoon]',
+           'desc': 'positive assertion',
+           'ireg': None},
+    '?-': {'args': '[wing (list (pair model value))]',
+           'desc': 'switch against a union, with no default',
+           'ireg': None},
+    '?+': {'args': '[wing value (list (pair model value))]',
+           'desc': 'switch against a union, with a default',
+           'ireg': None},
+    '?.': {'args': '[hoon hoon hoon]',
+           'desc': 'branch on a boolean test, inverted',
+           'ireg': None},
+    '?~': {'args': '[wing hoon hoon]',
+           'desc': 'branch on whether a wing of the subject is null',
+           'ireg': None},
+    '?@': {'args': '[wing hoon hoon]',
+           'desc': 'branch on whether a wing of the subject is an atom',
+           'ireg': None},
+    '?^': {'args': '[wing hoon hoon]',
+           'desc': 'branch on whether a wing of the subject is a cell',
+           'ireg': None},
+    '?=': {'args': '[model wing]',
+           'desc': 'test model match',
+           'ireg': None},
+    '?!': {'args': 'hoon',
+           'desc': 'logical not',
+           'ireg': '!foo'},
+    '?&': {'args': '(list hoon)',
+           'desc': 'logical and',
+           'ireg': '&(foo bar baz)'},
+    '?|': {'args': '(list hoon)',
+           'desc': 'logical or',
+           'ireg': '|(foo bar baz)'},
+
+    '!!': {'args': '$~',
+           'desc': 'crash',
+           'ireg': None},
+    '!>': {'args': 'hoon',
+           'desc': 'wrap a noun in its type (create a vase)',
+           'ireg': None},
+    '!=': {'args': 'hoon',
+           'desc': 'make the nock formula for a hoon',
+           'ireg': None},
+    '!?': {'args': '[@ hoon]',
+           'desc': 'restrict the hoon version',
+           'ireg': None},
+}
+
+rune_category = {
+    "|": "core",
+    "$": "mold",
+    "%": "call",
+    ":": "cell",
+    ".": "nock",
+    "^": "cast",
+    ";": "make",
+    "~": "hint",
+    "=": "flow",
+    "?": "test",
+    "!": "wild",
+}
+
+def lookup_rune(args):
+    if len(args.rune) == 1:
+        print('{}  {}'.format(args.rune, rune_category[args.rune]))
+    elif args.rune in rune_cheatsheet:
+        info = rune_cheatsheet[args.rune]
+        print('{}  {}'.format(args.rune, info['args']))
+        print('{}'.format(info['desc']))
+        if info['ireg'] is not None:
+            print('aka: {}'.format(info['ireg']))
+    else:
+        print('rune not found, sorry :(')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='headless urbit')
+    subparser = parser.add_subparsers()
+
+    parser_run = subparser.add_parser('run', help='run a command on your ship')
+    parser_run.set_defaults(func=run_pier)
+    parser_run.add_argument('pier', nargs='?',
+                           help='target urbit directory',
+                           action=FullPaths, type=is_dir)
+    parser_run.add_argument('-d', '--dojo', which='dojo',
+                           metavar='command-line',
+                           help='run dojo command',
+                           action=sourceAction, dest='source')
+    parser_run.add_argument('-D', '--data', which='data',
+                           metavar='text',
+                           help='literal text data',
+                           action=sourceAction)
+    parser_run.add_argument('-c', '--clay', which='clay',
+                           metavar='clay-path',
+                           help='load data from clay',
+                           action=sourceAction)
+    parser_run.add_argument('-u', '--url', which='url',
+                           metavar='url',
+                           help='pull data from url',
+                           action=sourceAction)
+    parser_run.add_argument('-a', '--api', which='api',
+                           metavar='command',
+                           help='get data from api',
+                           action=sourceAction)
+    parser_run.add_argument('-g', '--get-api', which='get-api',
+                           metavar='api:endpoint',
+                           help='get data from api endpoint',
+                           action=sourceAction)
+    parser_run.add_argument('-l', '--listen-api', which='listen-api',
+                           metavar='api:event',
+                           help='listen to event from api',
+                           action=sourceAction)
+    parser_run.add_argument('-m', '--mark', which='as',
+                           metavar='mark',
+                           help='transform a source to another mark',
+                           nesting='mark',
+                           action=transformerAction)
+    parser_run.add_argument('-H', '--hoon', which='hoon',
+                           metavar='code',
+                           help='transform a source by hoon code',
+                           nesting='code',
+                           action=transformerAction)
+    parser_run.add_argument('--open',
+                           nargs=0,
+                           help='start tuple',
+                           action=openAction, dest='level')
+    parser_run.add_argument('--close',
+                           nargs=0,
+                           help='stop tuple',
+                           action=closeAction)
+
+    sinks = parser_run.add_mutually_exclusive_group()
+    sinks.add_argument('-s', '--stdout', const={'stdout': None},
+                       default={'stdout': None},
+                       action='store_const', dest='sink')
+    sinks.add_argument('-f', '--output-file', which='output-file',
+                       metavar='path',
+                       action=sinkAction)
+    sinks.add_argument('-P', '--output-pill', which='output-pill',
+                       metavar='path',
+                       action=sinkAction)
+    sinks.add_argument('-C', '--output-clay', which='output-clay',
+                       metavar='clay-path',
+                       action=sinkAction)
+    sinks.add_argument('-U', '--output-url', which='url',
+                       metavar='url',
+                       action=sinkAction)
+    sinks.add_argument('-t', '--to-api', which='to-api',
+                       metavar='api-command',
+                       action=sinkAction)
+    sinks.add_argument('-n', '--send-api', which='send-api',
+                       metavar='api:endpoint',
+                       action=sinkAction)
+    sinks.add_argument('-x', '--command', which='command',
+                       metavar='command',
+                       action=sinkAction)
+    sinks.add_argument('-p', '--app', which='app',
+                       metavar='app',
+                       action=sinkAction)
 
 
-args = parser.parse_args(args)
+    # glyph translation
+    parser_glyph = subparser.add_parser('glyph',
+            help='pronunciate hoon symbols')
+    parser_glyph.add_argument('syms',
+            help='ascii symbols to translate')
+    parser_glyph.set_defaults(func=translate_glyph)
 
+    # rune cheatsheet
+    parser_rune = subparser.add_parser('rune',
+            help='rune cheatsheet')
+    parser_rune.add_argument('rune',
+            help='rune to lookup')
+    parser_rune.set_defaults(func=lookup_rune)
 
-if args.source is None:
-    args.source = {"data": ''.join(sys.stdin)}
-
-payload = {"source": args.source, "sink": args.sink}
-logging.debug(['payload', json.dumps(payload)])
-
-PORT = ""
-
-if args.pier is None:
-    PORT = os.environ.get('LENS_PORT', 12321)
-    if not os.environ.has_key('LENS_PORT'):
-        logging.warn("No pier or port specified, looking on port " + str(PORT))
-else:
-    with open(os.path.join(args.pier, ".http.ports")) as ports:
-        for line in ports:
-            if -1 != line.find("loopback"):
-                PORT = line.split()[0]
-                logging.info("Found port %s" % PORT)
-                break
-
-        if not PORT:
-            logging.error("Error reading port from .http.ports file")
-            sys.exit(1)
-
-url = "http://localhost:%s" % PORT
-
-r = requests.post(url, data=json.dumps(payload))
-
-if r.text[0] == '"':
-    print r.text[1:-1].decode('string_escape')
-elif r.text[0] == '{':
-    # print r.text
-    json_data = json.loads(r.text)
-    logging.debug(json_data)
-    with open(json_data['file'][:0:-1].replace('/','.',1)[::-1], 'w') as f:
-      f.write(base64.b64decode(json_data['data']))
-else:
-    logging.warn("unrecognized response")
-    print r.text
+    # do it
+    args = parser.parse_args(args)
+    args.func(args)
